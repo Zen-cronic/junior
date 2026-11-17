@@ -37,7 +37,7 @@ const TEXT_REFERENCE_PATTERN = new RegExp(
 );
 
 // `orgs/` and `enterprises/` paths hold discussions that belong to no repository.
-const GITHUB_URL_BODY = `https?:\\/\\/(?:www\\.)?github\\.com\\/(?!(?:orgs|enterprises)\\/)(?<owner>${LOGIN})\\/(?<repo>${REPO})\\/(?:(?<kind>issues|pull|discussions)\\/(?<issue>\\d+)|commit\\/(?<commit>${SHA}))`;
+const GITHUB_URL_BODY = `https?:\\/\\/(?:www\\.)?github\\.com\\/(?!(?:orgs|enterprises)\\/)(?<owner>${LOGIN})\\/(?<repo>${REPO})\\/(?:(?:issues|pull|discussions)\\/(?<issue>\\d+)|commit\\/(?<commit>${SHA}))`;
 const GITHUB_URL_PATTERN = new RegExp(`^${GITHUB_URL_BODY}$`, "i");
 // A URL anywhere in a link destination.
 const GITHUB_LINKED_URL_PATTERN = new RegExp(GITHUB_URL_BODY, "gi");
@@ -108,22 +108,6 @@ function namedRepositories(text: string, spans: Span[]): Repository[] {
   return [...repositories.values()];
 }
 
-/** Pull request URLs in links of the text, by object key. */
-function pullRequestUrls(spans: Span[]): Map<string, string> {
-  const urls = new Map<string, string>();
-  for (const span of spans) {
-    for (const { groups } of span.url?.matchAll(GITHUB_LINKED_URL_PATTERN) ??
-      []) {
-      if (groups?.["kind"]?.toLowerCase() !== "pull") continue;
-      const repo = `${groups["owner"]}/${groups["repo"]}`;
-      urls.set(
-        githubObjectKey(repo, Number(groups["issue"])),
-        `https://github.com/${repo}/pull/${groups["issue"]}`,
-      );
-    }
-  }
-  return urls;
-}
 const commitUrl = (owner: string, name: string, sha: string) =>
   `https://github.com/${owner}/${name}/commit/${sha}`;
 
@@ -206,19 +190,13 @@ export function linkifyGitHubReferences(
 ): string {
   const spans = readSpans(text);
   const named = namedRepositories(text, spans);
-  const pullRequests = pullRequestUrls(spans);
   const context = {
-    // GitHub numbers issues and pull requests together, so `#123` alone does
-    // not say which it is. Use the URL that the Conversation or the text
-    // has. Else link the issue URL, which GitHub redirects for a pull request.
-    issueUrl: (owner: string, name: string, issue: string) => {
-      const key = githubObjectKey(`${owner}/${name}`, Number(issue));
-      return (
-        options.objectUrl?.(key) ??
-        pullRequests.get(key) ??
-        `https://github.com/${owner}/${name}/issues/${issue}`
-      );
-    },
+    // `#123` does not say if it is an issue or a pull request. Use the URL
+    // that the Conversation stored for it. Else link the issue URL, which
+    // GitHub redirects for a pull request.
+    issueUrl: (owner: string, name: string, issue: string) =>
+      options.objectUrl?.(githubObjectKey(`${owner}/${name}`, Number(issue))) ??
+      `https://github.com/${owner}/${name}/issues/${issue}`,
     linkProfiles: options.githubText === true || named.length > 0,
     mention: options.mention ?? (() => undefined),
     repository:
