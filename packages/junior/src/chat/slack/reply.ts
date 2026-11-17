@@ -84,13 +84,13 @@ async function resolveReplyObjectUrls(
       getDb(),
       conversationId,
     );
-    return new Map(
-      annotations.flatMap((annotation) =>
-        annotation.url
-          ? [[`${annotation.plugin}:${annotation.key}`, annotation.url]]
-          : [],
-      ),
-    );
+    const urls = new Map<string, string>();
+    // Annotations come newest first. Keep the newest URL for each key.
+    for (const annotation of annotations) {
+      const key = `${annotation.plugin}:${annotation.key}`;
+      if (annotation.url && !urls.has(key)) urls.set(key, annotation.url);
+    }
+    return urls;
   } catch (error) {
     logWarn("slack.reply.object_urls.failed", {
       "exception.message":
