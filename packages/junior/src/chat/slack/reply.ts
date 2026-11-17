@@ -14,7 +14,9 @@ import {
 } from "@/chat/slack/footer";
 import { escapeSlackMrkdwnText } from "@/chat/slack/mrkdwn";
 import { resolveHandleMentions } from "@/chat/events/people";
+import { getDb } from "@/chat/db";
 import { logWarn } from "@/chat/logging";
+import { listConversationAnnotations } from "@/chat/plugins/annotations";
 import { postSlackMessage } from "@/chat/slack/outbound";
 import { splitSlackReplyText } from "@/chat/slack/output";
 import { fitsSlackMetadataLimit } from "./work-object";
@@ -70,6 +72,35 @@ async function resolveReplyMentions(
 }
 
 /**
+ * Read the URLs of the Conversation's annotations, so plugin formatting
+ * links an object that the Conversation has, such as a pull request, to its
+ * own URL. Fails open, like the hooks.
+ */
+async function resolveReplyObjectUrls(
+  conversationId: string,
+): Promise<Map<string, string> | undefined> {
+  try {
+    const annotations = await listConversationAnnotations(
+      getDb(),
+      conversationId,
+    );
+    return new Map(
+      annotations.flatMap((annotation) =>
+        annotation.url
+          ? [[`${annotation.plugin}:${annotation.key}`, annotation.url]]
+          : [],
+      ),
+    );
+  } catch (error) {
+    logWarn("slack.reply.object_urls.failed", {
+      "exception.message":
+        error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
+}
+
+/**
  * Send one destination-visible Slack reply.
  *
  * Chunks oversized text, builds compact attribution and conversation footer
@@ -93,6 +124,7 @@ export async function sendSlackReply(args: {
   const format = args.formatting && {
     configuration: args.formatting.configuration,
     mentions: await resolveReplyMentions(args.text, args.formatting.teamId),
+    objectUrls: await resolveReplyObjectUrls(args.conversationId),
   };
   const posts: Array<{ text: string; cards: SlackCard[] }> =
     splitSlackReplyText(args.text, format).map((text) => ({

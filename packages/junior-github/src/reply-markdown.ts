@@ -2,6 +2,7 @@ import type { Nodes } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
+import { githubObjectKey } from "./annotations.js";
 import {
   configuredRepository,
   type Repository,
@@ -36,7 +37,7 @@ const TEXT_REFERENCE_PATTERN = new RegExp(
 );
 
 // `orgs/` and `enterprises/` paths hold discussions that belong to no repository.
-const GITHUB_URL_BODY = `https?:\\/\\/(?:www\\.)?github\\.com\\/(?!(?:orgs|enterprises)\\/)(?<owner>${LOGIN})\\/(?<repo>${REPO})\\/(?:(?:issues|pull|discussions)\\/(?<issue>\\d+)|commit\\/(?<commit>${SHA}))`;
+const GITHUB_URL_BODY = `https?:\\/\\/(?:www\\.)?github\\.com\\/(?!(?:orgs|enterprises)\\/)(?<owner>${LOGIN})\\/(?<repo>${REPO})\\/(?:(?<kind>issues|pull|discussions)\\/(?<issue>\\d+)|commit\\/(?<commit>${SHA}))`;
 const GITHUB_URL_PATTERN = new RegExp(`^${GITHUB_URL_BODY}$`, "i");
 // A URL anywhere in a link destination.
 const GITHUB_LINKED_URL_PATTERN = new RegExp(GITHUB_URL_BODY, "gi");
@@ -107,8 +108,22 @@ function namedRepositories(text: string, spans: Span[]): Repository[] {
   return [...repositories.values()];
 }
 
-const issueUrl = (owner: string, name: string, issue: string) =>
-  `https://github.com/${owner}/${name}/issues/${issue}`;
+/** Pull request URLs in links of the text, by object key. */
+function pullRequestUrls(spans: Span[]): Map<string, string> {
+  const urls = new Map<string, string>();
+  for (const span of spans) {
+    for (const { groups } of span.url?.matchAll(GITHUB_LINKED_URL_PATTERN) ??
+      []) {
+      if (groups?.["kind"]?.toLowerCase() !== "pull") continue;
+      const repo = `${groups["owner"]}/${groups["repo"]}`;
+      urls.set(
+        githubObjectKey(repo, Number(groups["issue"])),
+        `https://github.com/${repo}/pull/${groups["issue"]}`,
+      );
+    }
+  }
+  return urls;
+}
 const commitUrl = (owner: string, name: string, sha: string) =>
   `https://github.com/${owner}/${name}/commit/${sha}`;
 
@@ -126,12 +141,13 @@ function linkifyUrl(url: string): string {
 function linkifyTextReferences(
   text: string,
   context: {
+    issueUrl: (owner: string, name: string, issue: string) => string;
     linkProfiles: boolean;
     mention: (login: string) => string | undefined;
     repository: Repository | undefined;
   },
 ): string {
-  const { repository } = context;
+  const { issueUrl, repository } = context;
   return text.replace(TEXT_REFERENCE_PATTERN, (reference, ...args) => {
     const groups = args.at(-1) as Record<string, string | undefined>;
     if (groups["issue"]) {
@@ -185,11 +201,24 @@ export function linkifyGitHubReferences(
     config?: Record<string, string>;
     githubText?: boolean;
     mention?: (login: string) => string | undefined;
+    objectUrl?: (key: string) => string | undefined;
   } = {},
 ): string {
   const spans = readSpans(text);
   const named = namedRepositories(text, spans);
+  const pullRequests = pullRequestUrls(spans);
   const context = {
+    // GitHub numbers issues and pull requests together, so `#123` alone does
+    // not say which it is. Use the URL that the Conversation or the text
+    // has. Else link the issue URL, which GitHub redirects for a pull request.
+    issueUrl: (owner: string, name: string, issue: string) => {
+      const key = githubObjectKey(`${owner}/${name}`, Number(issue));
+      return (
+        options.objectUrl?.(key) ??
+        pullRequests.get(key) ??
+        `https://github.com/${owner}/${name}/issues/${issue}`
+      );
+    },
     linkProfiles: options.githubText === true || named.length > 0,
     mention: options.mention ?? (() => undefined),
     repository:

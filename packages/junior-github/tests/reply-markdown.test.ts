@@ -231,6 +231,16 @@ describe("GitHub reply markdown", () => {
     );
   });
 
+  it("links a number to the pull request URL that the text has", () => {
+    expect(
+      linkifyGitHubReferences(
+        "#12 is approved.\n\nhttps://github.com/getsentry/junior/pull/12",
+      ),
+    ).toBe(
+      "[#12](https://github.com/getsentry/junior/pull/12) is approved.\n\n[getsentry/junior#12](https://github.com/getsentry/junior/pull/12)",
+    );
+  });
+
   it("registers linkification on the GitHub plugin", () => {
     const hook = githubPlugin().hooks?.formatMarkdown;
 
@@ -239,6 +249,7 @@ describe("GitHub reply markdown", () => {
       hook?.({
         config: { repo: "getsentry/junior" },
         mention: () => undefined,
+        objectUrl: () => undefined,
         platform: "slack",
         text: "#1509",
       }),
@@ -249,6 +260,7 @@ describe("GitHub reply markdown", () => {
       hook?.({
         config: {},
         mention: () => undefined,
+        objectUrl: () => undefined,
         platform: "web",
         provider: "github",
         text: "@octocat see https://github.com/getsentry/junior/pull/1",
