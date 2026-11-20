@@ -974,6 +974,20 @@
       "when": 1795167078477,
       "tag": "0138_code_change_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1795195991943,
+      "tag": "0139_conversation_kind_lead",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1795195994075,
+      "tag": "0140_conversation_lead_actor_index",
+      "breakpoints": true
     }
   ]
 }
